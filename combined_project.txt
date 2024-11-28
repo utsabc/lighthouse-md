@@ -1,0 +1,1390 @@
+
+# File: index.html
+----------------------------------------
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vite + React + TS</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
+----------------------------------------
+
+
+# File: package.json
+----------------------------------------
+{
+  "name": "lighthouse",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@ant-design/icons": "^5.5.1",
+    "@types/pdf-parse": "^1.1.4",
+    "@xenova/transformers": "^2.17.2",
+    "antd": "^5.22.2",
+    "langchain": "^0.3.6",
+    "mammoth": "^1.8.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-pdftotext": "^1.3.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.13.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^9.13.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.14",
+    "globals": "^15.11.0",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.15",
+    "typescript": "~5.6.2",
+    "typescript-eslint": "^8.11.0",
+    "vite": "^5.4.10"
+  }
+}
+
+----------------------------------------
+
+
+# File: postcss.config.js
+----------------------------------------
+export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+}
+
+----------------------------------------
+
+
+# File: src/App.tsx
+----------------------------------------
+import React, { useEffect, useRef, useState } from "react";
+import { Layout } from "antd";
+import DocumentPanel from "./components/DocumentPanel";
+import ChatPanel, { Message } from "./components/ChatPanel";
+import { EnhancedUploadFile } from "./types";
+import { ChatManager } from "./lib/ChatManager";
+
+const { Content } = Layout;
+
+const App: React.FC = () => {
+  const [documents, setDocuments] = useState<EnhancedUploadFile[]>([]);
+  const chatManagerRef = useRef<ChatManager | null>(null);
+
+  // chat states
+  const [inputText, setInputText] = useState("");
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
+
+  useEffect(() => {
+    const initChatManager = async () => {
+      try {
+        chatManagerRef.current = new ChatManager();
+        await chatManagerRef.current.initialize();
+      } catch (error) {
+        console.error("Failed to initialize ChatManager:", error);
+      } finally {
+        setIsInitializing(false);
+      }
+    };
+
+    initChatManager();
+  }, []);
+
+  const handleSend = async () => {
+    if (!inputText.trim() || !chatManagerRef.current) return;
+
+    const userMessage: Message = {
+      id: Date.now(),
+      text: inputText,
+      sender: "user",
+      timestamp: new Date(),
+    };
+
+    setMessages((prev) => [...prev, userMessage]);
+    setInputText("");
+    setIsLoading(true);
+
+    try {
+      const response = await chatManagerRef.current.chat(inputText);
+
+      const aiMessage: Message = {
+        id: Date.now(),
+        text: response.text,
+        sender: "ai",
+        timestamp: new Date(),
+        references: response.references,
+      };
+
+      setMessages((prev) => [...prev, aiMessage]);
+    } catch (error) {
+      console.error("Chat error:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <Layout className="min-h-screen">
+      <Content className="flex p-4 gap-4">
+        <div className="w-1/3 bg-white rounded-lg shadow-md">
+          <DocumentPanel fileList={documents} setFileList={setDocuments} />
+        </div>
+        <div className="w-2/3 bg-white rounded-lg shadow-md">
+          <ChatPanel
+            isInitializing={isInitializing}
+            handleSend={handleSend}
+            inputText={inputText}
+            isLoading={isLoading}
+            messages={messages}
+            setInputText={setInputText}
+            setIsLoading={setIsLoading}
+          />
+        </div>
+      </Content>
+    </Layout>
+  );
+};
+
+export default App;
+
+----------------------------------------
+
+
+# File: src/components/ChatPanel.tsx
+----------------------------------------
+import React from "react";
+import { Input, Button, Spin } from "antd";
+import { SendOutlined } from "@ant-design/icons";
+
+export interface Message {
+  id: number;
+  text: string;
+  sender: "user" | "ai";
+  timestamp: Date;
+  references?: {
+    text: string;
+    ref: string;
+    name: string;
+  }[];
+}
+
+/*
+  // chat states
+  const [inputText, setInputText] = useState("");
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
+*/
+
+interface ChatProps {
+  isInitializing: boolean;
+  messages: Message[];
+  inputText: string;
+  isLoading: boolean;
+  handleSend: () => Promise<void>;
+  setInputText: React.Dispatch<React.SetStateAction<string>>;
+  setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;
+}
+
+const ChatPanel: React.FC<ChatProps> = ({
+  isInitializing,
+  messages,
+  inputText,
+  setInputText,
+  isLoading,
+  handleSend,
+}) => {
+  if (isInitializing) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <Spin size="large" tip="Initializing chat..." />
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full p-4 flex flex-col">
+      <h2 className="text-xl font-semibold mb-4">Chat</h2>
+
+      <div className="flex-grow overflow-y-auto mb-4 space-y-4">
+        {messages.map((message) => (
+          <div
+            key={message.id}
+            className={`flex ${
+              message.sender === "user" ? "justify-end" : "justify-start"
+            }`}
+          >
+            <div
+              className={`max-w-[70%] rounded-lg p-3 ${
+                message.sender === "user"
+                  ? "bg-blue-500 text-white"
+                  : "bg-gray-100"
+              }`}
+            >
+              <div>{message.text}</div>
+              {message.references && (
+                <div className="mt-2 text-sm text-gray-600">
+                  {message.references.map((ref, index) => (
+                    <div key={index} className="mt-1">
+                      {ref.ref}: {ref.text}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex gap-2">
+        <Input
+          value={inputText}
+          onChange={(e) => setInputText(e.target.value)}
+          onPressEnter={handleSend}
+          placeholder="Type your message..."
+          className="flex-grow"
+          disabled={isLoading}
+        />
+        <Button
+          type="primary"
+          icon={<SendOutlined />}
+          onClick={handleSend}
+          loading={isLoading}
+        >
+          Send
+        </Button>
+      </div>
+    </div>
+  );
+};
+
+export default ChatPanel;
+
+----------------------------------------
+
+
+# File: src/components/DocumentPanel.tsx
+----------------------------------------
+import React from "react";
+import { Upload, Button, List, Spin } from "antd";
+import { UploadOutlined } from "@ant-design/icons";
+import { EnhancedUploadFile } from "../types";
+import { UploadChangeParam } from "antd/es/upload";
+import { processFileWithState } from "../lib/ContentParser";
+
+interface DocumentPanelProps {
+  fileList: EnhancedUploadFile[];
+  setFileList: React.Dispatch<React.SetStateAction<EnhancedUploadFile[]>>;
+}
+
+const DocumentPanel: React.FC<DocumentPanelProps> = ({
+  fileList,
+  setFileList,
+}) => {
+  const updateFileState = (
+    uid: string,
+    updates: Partial<EnhancedUploadFile>
+  ) => {
+    setFileList((prevList) =>
+      prevList.map((f) => (f.uid === uid ? { ...f, ...updates } : f))
+    );
+  };
+
+  const handleChange = async (info: UploadChangeParam<EnhancedUploadFile>) => {
+    const { file, fileList: newFileList } = info;
+
+    // If the file is removed, update the fileList and return
+    if (file.status === "removed") {
+      setFileList(newFileList);
+      return;
+    }
+
+    // Update the fileList with the new file
+    setFileList(newFileList);
+
+    // If the file is newly added, start processing its content
+    if (file.status === "uploading" && !file.content) {
+      const originalFile = file.originFileObj;
+      if (originalFile) {
+        try {
+          await processFileWithState(originalFile, updateFileState, file.uid);
+        } catch (error) {
+          console.error("Failed to process file:", error);
+        }
+      }
+    }
+  };
+
+  const renderFileStatus = (file: EnhancedUploadFile) => {
+    switch (file.processingState) {
+      case "processing":
+        return <Spin size="small" />;
+      case "error":
+        return <span className="text-red-500">{file.errorMessage}</span>;
+      case "done":
+        return <span className="text-green-500">Processed</span>;
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div className="h-full p-4 flex flex-col">
+      <div className="mb-4">
+        <h2 className="text-xl font-semibold mb-4">Documents</h2>
+        <Upload
+          accept=".pdf,.txt,.doc,.docx"
+          fileList={fileList}
+          onChange={handleChange}
+          multiple={true}
+          progress={{ strokeColor: { "0%": "#108ee9", "100%": "#87d068" } }}
+          className="w-full"
+        >
+          <Button icon={<UploadOutlined />} className="w-full">
+            Upload Document
+          </Button>
+        </Upload>
+      </div>
+
+      <List
+        className="flex-grow overflow-y-auto"
+        itemLayout="horizontal"
+        dataSource={fileList}
+        renderItem={(file) => (
+          <List.Item className="cursor-pointer hover:bg-gray-50 px-4">
+            <List.Item.Meta
+              title={file.name}
+              description={
+                <div className="flex justify-between">
+                  <span>{`Size: ${(file.size! / 1024).toFixed(2)} KB`}</span>
+                  {renderFileStatus(file)}
+                </div>
+              }
+            />
+          </List.Item>
+        )}
+      />
+    </div>
+  );
+};
+
+export default DocumentPanel;
+
+----------------------------------------
+
+
+# File: src/index.css
+----------------------------------------
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+----------------------------------------
+
+
+# File: src/lib/ChatManager.ts
+----------------------------------------
+import { EnhancedUploadFile } from "../types";
+import { splitContent } from "./ContentSplitter";
+import { extractFeatures } from "./FeatureExtractor";
+import { GPTNano } from "./Nano";
+import { VectorDatabase } from "./VectorStore";
+
+// Types for chat responses and references
+interface ChatReference {
+  text: string;
+  ref: string;
+  name: string;
+}
+
+interface ChatResponse {
+  text: string;
+  references: ChatReference[];
+}
+
+export class ChatManager {
+  private vectorDb: VectorDatabase;
+  private gptNano: GPTNano;
+  private pageContentProcessed: boolean;
+  private pageContent: string;
+  private currentUrl: string;
+  private enPageContent: string;
+  private pageLang?: string;
+  private enSummary: string;
+  private langSummaries: Map<string, string>;
+
+  constructor() {
+    this.vectorDb = new VectorDatabase();
+    this.gptNano = new GPTNano();
+    this.pageContentProcessed = false;
+    this.pageContent = "";
+    this.currentUrl = "";
+    this.enPageContent = "";
+    this.pageLang = undefined;
+    this.enSummary = "";
+    this.langSummaries = new Map();
+  }
+
+  public async initialize(): Promise<void> {
+    try {
+      await this.vectorDb.init();
+
+      await new Promise<void>((resolve) => {
+        const checkInit = () => {
+          if (this.gptNano.isInitialised()) {
+            resolve();
+          } else {
+            setTimeout(checkInit, 100);
+          }
+        };
+        checkInit();
+      });
+    } catch (error) {
+      console.error("ChatManager initialization error:", error);
+      throw new Error(
+        `Failed to initialize chat system: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
+    }
+  }
+
+  // const maxTokensPerChunk = 1024 - 26;
+  private async getDynamicPageChunks(content: string, maxTokensPerChunk = 998) {
+    // Estimate the number of tokens in the content
+    const estimatedTokens = Math.ceil(content.length / 4);
+
+    // Calculate the number of chunks needed
+    const numChunks = Math.ceil(estimatedTokens / maxTokensPerChunk);
+
+    // Split content into chunks
+    const chunkSize = Math.ceil(content.length / numChunks);
+    const chunks = await splitContent(content, {
+      chunkSize: chunkSize,
+      chunkOverlap: 20,
+    });
+    return chunks;
+  }
+
+  public async storeFeatures(files: EnhancedUploadFile[]): Promise<void> {
+    try {
+      // Validate all files have content
+      if (files.some((file) => !file.content)) {
+        throw new Error("Selected files must have content");
+      }
+
+      // Process all files
+      for (const file of files) {
+        const content = file.content as string;
+        const chunks = await this.getDynamicPageChunks(content);
+        for (const chunk of chunks) {
+          const embedding = await extractFeatures(chunk.text);
+          this.vectorDb.addRecord(
+            {
+              filename: file.name,
+              fileId: file.uid,
+              text: chunk.text,
+              ...chunk.metadata,
+            },
+            embedding
+          );
+        }
+      }
+    } catch (error) {
+      throw new Error(
+        `Failed to process document: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
+    }
+  }
+
+  // ... other methods remain similar but with proper TypeScript types ...
+
+  public async chat(userMessage: string): Promise<ChatResponse> {
+    try {
+      const messageEmbeddingResult = await extractFeatures(userMessage);
+
+      const relevantDocs = await this.vectorDb.searchSimilar(
+        messageEmbeddingResult,
+        "cosineSimilarity",
+        3
+      );
+
+      const contextWithRefs: ChatReference[] = relevantDocs.map(
+        (doc, index) =>
+          ({
+            text: doc.metadata.text,
+            ref: `[${index + 1}]`,
+            name: doc.metadata.filename,
+          } as ChatReference)
+      );
+
+      const context = contextWithRefs
+        .map((c) => `${c.text} ${c.ref}`)
+        .join("\n\n");
+
+      const prompt = `Given the following context from the webpage (${this.currentUrl}): 
+      ${context}
+      Use relevant information from the context, please respond to ${userMessage}. If the context doesn't contain relevant information to answer the question, please let me know that you don't have enough information from the webpage to answer accurately.`;
+
+      const response = await this.gptNano.chat(prompt);
+
+      return {
+        text: response,
+        references: contextWithRefs,
+      };
+    } catch (error) {
+      console.error("Chat error:", error);
+      throw new Error(
+        `Failed to process chat: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
+    }
+  }
+}
+
+----------------------------------------
+
+
+# File: src/lib/ContentParser.ts
+----------------------------------------
+import { EnhancedUploadFile } from "../types";
+import mammoth from "mammoth";
+import readPdf from "react-pdftotext";
+
+export class FileContentParser {
+  /**
+   * Parse content based on file type
+   */
+  static async parseFileContent(file: File): Promise<string> {
+    switch (file.type) {
+      case "application/pdf":
+        return await FileContentParser.parsePdfContent(file);
+      case "application/msword": // .doc
+      case "application/vnd.openxmlformats-officedocument.wordprocessingml.document": // .docx
+        return await FileContentParser.parseWordContent(file);
+      case "text/plain":
+        return await FileContentParser.parseTextContent(file);
+      default:
+        throw new Error(`Unsupported file type: ${file.type}`);
+    }
+  }
+
+  /**
+   * Parse PDF files using react-pdftotext
+   */
+  private static async parsePdfContent(file: File): Promise<string> {
+    try {
+      const text = await readPdf(file);
+      return text.trim();
+    } catch (error) {
+      throw new Error(
+        `Failed to parse PDF: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
+    }
+  }
+
+  /**
+   * Parse Word documents using mammoth
+   */
+  private static async parseWordContent(file: File): Promise<string> {
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const result = await mammoth.extractRawText({ arrayBuffer });
+      return result.value.trim();
+    } catch (error) {
+      throw new Error(
+        `Failed to parse Word document: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
+    }
+  }
+
+  /**
+   * Parse plain text files
+   */
+  private static async parseTextContent(file: File): Promise<string> {
+    try {
+      return await file.text();
+    } catch (error) {
+      throw new Error(
+        `Failed to parse text file: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
+    }
+  }
+}
+
+/**
+ * Utility function to process file content with state management
+ */
+export async function processFileWithState(
+  file: File,
+  updateFileState: (uid: string, updates: Partial<EnhancedUploadFile>) => void,
+  fileUid: string
+): Promise<string> {
+  try {
+    // Update state to processing
+    updateFileState(fileUid, {
+      processingState: "processing",
+      status: "uploading",
+    });
+
+    const content = await FileContentParser.parseFileContent(file);
+
+    // Update state to done
+    updateFileState(fileUid, {
+      processingState: "done",
+      status: "done",
+      content,
+    });
+
+    return content;
+  } catch (error) {
+    // Update state to error
+    updateFileState(fileUid, {
+      processingState: "error",
+      status: "error",
+      errorMessage:
+        error instanceof Error ? error.message : "Failed to process file",
+    });
+    throw error;
+  }
+}
+
+----------------------------------------
+
+
+# File: src/lib/ContentSplitter.ts
+----------------------------------------
+import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
+
+/**
+ * Split text content into chunks
+ * @param text The text content to split
+ * @param config Splitting configuration
+ * @returns An array of text chunks
+ */
+
+interface SplitContentConfig {
+  chunkSize?: number;
+  chunkOverlap?: number;
+}
+
+export const splitContent = async (
+  text: string,
+  config: SplitContentConfig = {}
+) => {
+  const splitter = new RecursiveCharacterTextSplitter({
+    chunkSize: config.chunkSize || 700,
+    chunkOverlap: config.chunkOverlap || 10,
+  });
+
+  const chunks = [];
+
+  // Split the text into chunks
+  const documents = await splitter.createDocuments([text]);
+
+  for (const doc of documents) {
+    const chunkText = doc.pageContent;
+
+    // Store the chunk
+    chunks.push({ text: chunkText, metadata: doc.metadata });
+  }
+
+  return chunks;
+};
+
+----------------------------------------
+
+
+# File: src/lib/FeatureExtractor.ts
+----------------------------------------
+import {
+  pipeline,
+  env,
+  FeatureExtractionPipeline,
+} from "@xenova/transformers";
+
+// Configure environment settings
+env.allowLocalModels = false;
+env.backends.onnx.wasm.numThreads = 1;
+
+// Type definitions for the feature extractor
+type ProgressCallback =
+  | ((progress: { status: string; progress: number }) => void)
+  | null;
+
+interface ExtractionOptions {
+  pooling: "mean" | "max" | "cls" | "none";
+  normalize: boolean;
+}
+
+// Type for the pipeline result (a Float32Array in this case)
+type ExtractorOutput = Float32Array;
+
+class FeatureExtractorSingleton {
+  private static readonly model: string = "Xenova/all-MiniLM-L6-v2";
+  private static instance: Promise<FeatureExtractionPipeline> | null = null;
+
+  private constructor() {
+    // Private constructor to prevent instantiation
+  }
+
+  public static async getInstance(): Promise<FeatureExtractionPipeline> {
+    if (this.instance === null) {
+      this.instance = pipeline("feature-extraction", this.model);
+    }
+    return this.instance;
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function extractFeatures(text: string | string[]): Promise<any[]> {
+  const extractor = await FeatureExtractorSingleton.getInstance();
+  const messageEmbeddingResult = await extractor(text, {
+    pooling: "mean",
+    normalize: false,
+  });
+
+  const messageEmbedding = Array.from(
+    { length: messageEmbeddingResult.size },
+    (_, i) => messageEmbeddingResult.data[`${i}`]
+  );
+  return messageEmbedding;
+}
+
+export {
+  extractFeatures,
+  type ProgressCallback,
+  type ExtractionOptions,
+  type ExtractorOutput,
+};
+
+----------------------------------------
+
+
+# File: src/lib/Nano.ts
+----------------------------------------
+interface AICapabilities {
+  available: "no" | "readily" | string;
+  defaultTemperature?: number;
+  defaultTopK?: number;
+  maxTopK?: number;
+}
+
+interface DownloadProgressEvent extends Event {
+  loaded: number;
+  total: number;
+}
+
+interface AIModel {
+  ready: Promise<void>;
+  addEventListener(
+    event: string,
+    callback: (e: DownloadProgressEvent) => void
+  ): void;
+}
+
+interface Summarizer extends AIModel {
+  summarize(text: string): Promise<string>;
+}
+
+interface ChatSession extends AIModel {
+  prompt(text: string): Promise<string>;
+}
+
+interface Translator extends AIModel {
+  translate(text: string): Promise<string>;
+}
+
+interface DetectedLanguage {
+  detectedLanguages: string;
+  confidence: number;
+}
+
+interface LanguageDetector extends AIModel {
+  detectLanguage(text: string): Promise<Array<DetectedLanguage>>;
+}
+
+interface LanguagePair {
+  sourceLanguage: string;
+  targetLanguage: string;
+}
+
+interface AI {
+  summarizer: Summarizer | null;
+  chatSession: ChatSession | null;
+  translator: Map<string, Translator>;
+  languageDetector: LanguageDetector | null;
+}
+
+export class GPTNano {
+  private readonly SUPPORTED_LANGUAGES: string[] = [
+    "ar",
+    "bn",
+    "de",
+    "es",
+    "fr",
+    "hi",
+    "it",
+    "ja",
+    "ko",
+    "nl",
+    "pl",
+    "pt",
+    "ru",
+    "th",
+    "tr",
+    "vi",
+    "zh",
+    "zh-Hant",
+  ];
+
+  private version: string;
+  private ai: AI | null;
+
+  constructor() {
+    this.version = "1.0.0";
+    this.ai = null;
+    this.initializeAI();
+  }
+
+  public isInitialised(): boolean {
+    return this.ai !== null;
+  }
+
+  private async initializeAI(): Promise<void> {
+    try {
+      const status = await ai.languageModel.capabilities();
+      if (status.available !== "no") {
+        this.ai = {
+          summarizer: await this.initialiseSummarizer(),
+          chatSession: await this.initialiseChatSession(),
+          languageDetector: await this.languageDetector(),
+          translator: new Map(),
+        };
+      }
+    } catch (error) {
+      console.error("Failed to initialize AI:", error);
+    }
+  }
+
+  private async initialiseSummarizer(): Promise<Summarizer | null> {
+    const canSummarize = await ai.summarizer.capabilities();
+    let summarizer: Summarizer | null = null;
+
+    if (canSummarize && canSummarize.available !== "no") {
+      if (canSummarize.available === "readily") {
+        // The summarizer can immediately be used.
+        summarizer = await ai.summarizer.create();
+      } else {
+        // The summarizer can be used after the model download.
+        summarizer = await ai.summarizer.create();
+        if (!summarizer) {
+          throw new Error("Failed to create summarizer");
+        }
+        await summarizer.ready;
+      }
+    } else {
+      // The summarizer can't be used at all.
+      console.error("Summarizer is not available.");
+    }
+    return summarizer;
+  }
+
+  private async initialiseChatSession(): Promise<ChatSession | null> {
+    // Start by checking if it's possible to create a session based on the availability of the model, and the characteristics of the device.
+    const { available }: AICapabilities = await ai.languageModel.capabilities();
+
+    let session: ChatSession | null = null;
+    if (available !== "no") {
+      session = await ai.languageModel.create({
+        systemPrompt: "You are a friendly, helpful assistant",
+        monitor(m: AIModel) {
+          m.addEventListener("downloadprogress", (e: DownloadProgressEvent) => {
+            console.log(`Downloaded ${e.loaded} of ${e.total} bytes.`);
+          });
+        },
+      });
+    } else {
+      console.error("Chat is not available.");
+    }
+    return session;
+  }
+
+  private async languageDetector(): Promise<LanguageDetector | null> {
+    const canDetect = await translation.canDetect();
+    let detector;
+    if (canDetect !== "no") {
+      if (canDetect === "readily") {
+        // The language detector can immediately be used.
+        detector = await translation.createDetector();
+        console.log("Detector ready");
+      } else {
+        // The language detector can be used after the model download.
+        detector = await translation.createDetector();
+        detector.addEventListener("downloadprogress", (e) => {
+          console.log(e.loaded, e.total);
+        });
+        await detector.ready;
+      }
+    } else {
+      console.error("Language detector is not available.");
+    }
+    return detector;
+  }
+
+  private async initialiseTranslator(
+    languagePair: LanguagePair
+  ): Promise<Translator | null> {
+    const canTranslate = await translation.canTranslate(languagePair);
+    let translator: Translator | null = null;
+
+    if (canTranslate !== "no") {
+      if (canTranslate === "readily") {
+        // The translator can immediately be used.
+        translator = await translation.createTranslator(languagePair);
+        console.log("Translator ready");
+      } else {
+        // The translator can be used after the model download.
+        translator = await translation.createTranslator(languagePair);
+        await translator.ready;
+      }
+    } else {
+      console.error("Translator is not available.");
+    }
+    return translator;
+  }
+
+  private async getTranslationModel(
+    sourceLanguage: string,
+    targetLanguage: string
+  ): Promise<Translator | null> {
+    if (!this.ai) return null;
+
+    let translator = this.ai.translator.get(
+      `${sourceLanguage}#${targetLanguage}`
+    );
+    if (translator) {
+      return translator;
+    }
+
+    if (sourceLanguage === targetLanguage) {
+      return null;
+    }
+
+    const languagePair: LanguagePair = {
+      sourceLanguage,
+      targetLanguage,
+    };
+
+    translator = await this.initialiseTranslator(languagePair);
+    if (translator) {
+      this.ai.translator.set(`${sourceLanguage}#${targetLanguage}`, translator);
+    }
+    return translator;
+  }
+
+  public async chat(prompt: string): Promise<string> {
+    if (!this.ai?.chatSession) {
+      throw new Error("Chat session not initialized");
+    }
+    const response = await this.ai.chatSession.prompt(prompt);
+    return response;
+  }
+
+  public async summarize(
+    text: string,
+    _language: string = "en"
+  ): Promise<string> {
+    if (!this.ai?.summarizer) {
+      throw new Error("Summarizer not initialized");
+    }
+    const summary = await this.ai.summarizer.summarize(text);
+    return summary;
+  }
+
+  public async summarizeChunks(chunks: string[]): Promise<string> {
+    // Summarize each chunk individually
+    const chunkSummaries: string[] = [];
+    for (const chunk of chunks) {
+      const summary = await this.summarize(chunk);
+      chunkSummaries.push(summary);
+    }
+
+    let summary: string;
+
+    // If we have multiple summaries, combine them and summarize again
+    if (chunkSummaries.length > 1) {
+      const combinedSummaries = chunkSummaries.join("\n\n");
+      summary = await this.summarize(combinedSummaries);
+    } else {
+      summary = chunkSummaries[0];
+    }
+
+    return summary;
+  }
+
+  public async translate(
+    text: string,
+    { source, target }: { source: string; target: string }
+  ): Promise<string> {
+    const translator = await this.getTranslationModel(source, target);
+    // If the source and target languages are the same, return the original text
+    if (!translator) {
+      return text;
+    }
+    const translation = await translator.translate(text);
+    return translation;
+  }
+
+  public isSupportedLanguage(language: string): boolean {
+    return this.SUPPORTED_LANGUAGES.includes(language);
+  }
+}
+
+----------------------------------------
+
+
+# File: src/lib/VectorStore.ts
+----------------------------------------
+// Type definitions for database items and search results
+interface VectorRecord {
+  id: string;
+  metadata: {
+    [key: string]: unknown;
+  };
+  vector: number[];
+  norm: number;
+}
+
+interface ScoredVectorRecord extends VectorRecord {
+  score: number;
+}
+
+type SearchStrategy = "cosineSimilarity" | "euclideanDistance";
+
+export class VectorDatabase {
+  private dbName: string;
+  private storeName: string;
+  private version: number;
+  private db: IDBDatabase | null;
+
+  constructor() {
+    this.dbName = "vectorStore";
+    this.storeName = "vectors";
+    this.version = 1;
+    this.db = null;
+  }
+
+  public async init(): Promise<void> {
+    if (this.db) return;
+
+    return new Promise((resolve, reject) => {
+      const request: IDBOpenDBRequest = indexedDB.open(
+        this.dbName,
+        this.version
+      );
+
+      request.onerror = () => {
+        reject(request.error);
+      };
+
+      request.onsuccess = (event: Event) => {
+        const target = event.target as IDBOpenDBRequest;
+        this.db = target.result;
+        resolve();
+      };
+
+      request.onupgradeneeded = (event: IDBVersionChangeEvent) => {
+        const target = event.target as IDBOpenDBRequest;
+        const db = target.result;
+        if (!db.objectStoreNames.contains(this.storeName)) {
+          db.createObjectStore(this.storeName, { keyPath: "id" });
+        }
+      };
+    });
+  }
+
+  public async addRecord(
+    metadata: { [key: string]: unknown },
+    vector: number[]
+  ): Promise<VectorRecord> {
+    if (!this.db) {
+      throw new Error("Database not initialized");
+    }
+
+    const norm = this._calculateNorm(vector);
+    const id = crypto.randomUUID();
+    const newItem: VectorRecord = { id, metadata, vector, norm };
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([this.storeName], "readwrite");
+      const store = transaction.objectStore(this.storeName);
+      const request = store.add(newItem);
+
+      request.onsuccess = () => resolve(newItem);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  public async deleteRecord(id: string): Promise<void> {
+    if (!this.db) {
+      throw new Error("Database not initialized");
+    }
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([this.storeName], "readwrite");
+      const store = transaction.objectStore(this.storeName);
+      const request = store.delete(id);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  public async clearDatabase(): Promise<void> {
+    if (!this.db) {
+      throw new Error("Database not initialized");
+    }
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([this.storeName], "readwrite");
+      const store = transaction.objectStore(this.storeName);
+      const request = store.clear();
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  public async searchSimilar(
+    vector: number[],
+    strategy: SearchStrategy = "cosineSimilarity",
+    topK: number = 5
+  ): Promise<ScoredVectorRecord[]> {
+    if (!this.db) {
+      throw new Error("Database not initialized");
+    }
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([this.storeName], "readonly");
+      const store = transaction.objectStore(this.storeName);
+      const request = store.getAll();
+
+      request.onsuccess = () => {
+        const items: VectorRecord[] = request.result;
+        const scoredItems: ScoredVectorRecord[] = items.map((item) => {
+          const score =
+            strategy === "cosineSimilarity"
+              ? this._cosineSimilarity(vector, item.vector, item.norm)
+              : this._euclideanDistance(vector, item.vector);
+          return { ...item, score };
+        });
+
+        resolve(
+          scoredItems
+            .sort((a, b) =>
+              strategy === "cosineSimilarity"
+                ? b.score - a.score
+                : a.score - b.score
+            )
+            .slice(0, topK)
+        );
+      };
+
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  private _calculateNorm(vector: number[]): number {
+    return Math.sqrt(vector.reduce((sum, val) => sum + val ** 2, 0));
+  }
+
+  private _cosineSimilarity(
+    vectorA: number[],
+    vectorB: number[],
+    normB: number
+  ): number {
+    const dotProduct = vectorA.reduce(
+      (sum, val, i) => sum + val * vectorB[i],
+      0
+    );
+    const normA = this._calculateNorm(vectorA);
+    return dotProduct / (normA * normB);
+  }
+
+  private _euclideanDistance(vectorA: number[], vectorB: number[]): number {
+    return Math.sqrt(
+      vectorA.reduce((sum, val, i) => sum + (val - vectorB[i]) ** 2, 0)
+    );
+  }
+}
+
+----------------------------------------
+
+
+# File: src/main.tsx
+----------------------------------------
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import './index.css'
+import App from './App.tsx'
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+)
+
+----------------------------------------
+
+
+# File: src/types/index.ts
+----------------------------------------
+import type { UploadFile } from "antd/es/upload/interface";
+
+export interface EnhancedUploadFile extends UploadFile {
+    // string or binary data
+  content?: string;
+  errorMessage?: string;
+  processingState?: "processing" | "done" | "error";
+}
+
+----------------------------------------
+
+
+# File: src/vite-env.d.ts
+----------------------------------------
+/// <reference types="vite/client" />
+
+----------------------------------------
+
+
+# File: tailwind.config.js
+----------------------------------------
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+};
+
+----------------------------------------
+
+
+# File: tsconfig.app.json
+----------------------------------------
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+
+    /* Bundler mode */
+    "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true
+  },
+  "include": ["src"]
+}
+
+----------------------------------------
+
+
+# File: tsconfig.json
+----------------------------------------
+{
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ]
+}
+
+----------------------------------------
+
+
+# File: tsconfig.node.json
+----------------------------------------
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+
+    /* Bundler mode */
+    "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true
+  },
+  "include": ["vite.config.ts"]
+}
+
+----------------------------------------
+
+
+# File: vite.config.ts
+----------------------------------------
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+// https://vite.dev/config/
+export default defineConfig({
+  plugins: [react()],
+})
+
+----------------------------------------
