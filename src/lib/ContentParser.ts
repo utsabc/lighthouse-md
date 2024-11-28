@@ -82,15 +82,17 @@ export async function processFileWithState(
     updateFileState(fileUid, {
       processingState: "processing",
       status: "uploading",
+      errorMessage: undefined, // Clear any previous errors
     });
 
     const content = await FileContentParser.parseFileContent(file);
 
-    // Update state to done
+    // If content was successfully extracted, update state to contentReady
     updateFileState(fileUid, {
-      processingState: "done",
-      status: "done",
+      processingState: "contentReady",
+      status: "uploading", // Keep status as uploading since we still need to vectorize
       content,
+      errorMessage: undefined,
     });
 
     return content;

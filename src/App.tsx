@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Layout } from "antd";
 import DocumentPanel from "./components/DocumentPanel";
-import ChatPanel, { Message } from "./components/ChatPanel";
-import { EnhancedUploadFile } from "./types";
+import ChatPanel from "./components/ChatPanel";
+import { EnhancedUploadFile, Message } from "./types";
 import { ChatManager } from "./lib/ChatManager";
 
 const { Content } = Layout;
@@ -65,11 +65,59 @@ const App: React.FC = () => {
     }
   };
 
+  const updateDocumentState = (
+    uid: string,
+    updates: Partial<EnhancedUploadFile>
+  ) => {
+    setDocuments((prevDocs) =>
+      prevDocs.map((doc) => (doc.uid === uid ? { ...doc, ...updates } : doc))
+    );
+  };
+
+  const processDocuments = async (docs: EnhancedUploadFile[]) => {
+    if (!chatManagerRef.current) return;
+
+    const readyDocs = docs.filter(
+      (doc) => doc.content && doc.processingState === "contentReady"
+    );
+
+    for (const doc of readyDocs) {
+      try {
+        // Update state to show vectorization in progress
+        updateDocumentState(doc.uid, {
+          processingState: "vectorizing",
+        });
+
+        await chatManagerRef.current.storeFeatures([doc]);
+
+        // Update state to done after successful vectorization
+        updateDocumentState(doc.uid, {
+          processingState: "done",
+          status: "done",
+        });
+      } catch (error) {
+        console.error(`Failed to process document ${doc.name}:`, error);
+        updateDocumentState(doc.uid, {
+          processingState: "error",
+          status: "error",
+          errorMessage:
+            error instanceof Error
+              ? error.message
+              : "Failed to vectorize document",
+        });
+      }
+    }
+  };
+
   return (
     <Layout className="min-h-screen">
       <Content className="flex p-4 gap-4">
         <div className="w-1/3 bg-white rounded-lg shadow-md">
-          <DocumentPanel fileList={documents} setFileList={setDocuments} />
+          <DocumentPanel
+            fileList={documents}
+            setFileList={setDocuments}
+            onDocumentsProcessed={processDocuments}
+          />
         </div>
         <div className="w-2/3 bg-white rounded-lg shadow-md">
           <ChatPanel

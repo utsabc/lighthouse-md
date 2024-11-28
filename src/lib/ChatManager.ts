@@ -19,24 +19,10 @@ interface ChatResponse {
 export class ChatManager {
   private vectorDb: VectorDatabase;
   private gptNano: GPTNano;
-  private pageContentProcessed: boolean;
-  private pageContent: string;
-  private currentUrl: string;
-  private enPageContent: string;
-  private pageLang?: string;
-  private enSummary: string;
-  private langSummaries: Map<string, string>;
 
   constructor() {
     this.vectorDb = new VectorDatabase();
     this.gptNano = new GPTNano();
-    this.pageContentProcessed = false;
-    this.pageContent = "";
-    this.currentUrl = "";
-    this.enPageContent = "";
-    this.pageLang = undefined;
-    this.enSummary = "";
-    this.langSummaries = new Map();
   }
 
   public async initialize(): Promise<void> {
@@ -64,7 +50,10 @@ export class ChatManager {
   }
 
   // const maxTokensPerChunk = 1024 - 26;
-  private async getDynamicPageChunks(content: string, maxTokensPerChunk = 998) {
+  private async getDynamicPageChunks(
+    content: string,
+    maxTokensPerChunk = 4090
+  ) {
     // Estimate the number of tokens in the content
     const estimatedTokens = Math.ceil(content.length / 4);
 
@@ -79,7 +68,6 @@ export class ChatManager {
     });
     return chunks;
   }
-
   public async storeFeatures(files: EnhancedUploadFile[]): Promise<void> {
     try {
       // Validate all files have content
@@ -113,34 +101,82 @@ export class ChatManager {
     }
   }
 
+  private async getRelevantContexts(
+    query: string,
+    isGeneralQuery: boolean
+  ): Promise<ChatReference[]> {
+    const messageEmbeddingResult = await extractFeatures(query);
+
+    // Get more results for general queries
+    const numResults = isGeneralQuery ? 30 : 10;
+
+    const relevantDocs = await this.vectorDb.searchSimilar(
+      messageEmbeddingResult,
+      "cosineSimilarity",
+      numResults
+    );
+
+    // Group by filename to consolidate references
+    const groupedByFile = new Map<string, string[]>();
+
+    relevantDocs.forEach((doc) => {
+      const filename = doc.metadata.filename as string;
+      if (!groupedByFile.has(filename)) {
+        groupedByFile.set(filename, []);
+      }
+      groupedByFile.get(filename)?.push(doc.metadata.text as string);
+    });
+
+    // Convert to ChatReference format
+    let refIndex = 1;
+    const references: ChatReference[] = [];
+
+    for (const [filename, texts] of groupedByFile.entries()) {
+      // For general queries, combine all texts from the same file
+      if (isGeneralQuery) {
+        references.push({
+          text: texts.join("\n\n"),
+          ref: `[${refIndex}]`,
+          name: filename,
+        });
+        refIndex++;
+      } else {
+        // For specific queries, keep separate references
+        texts.forEach((text) => {
+          references.push({
+            text,
+            ref: `[${refIndex}]`,
+            name: filename,
+          });
+          refIndex++;
+        });
+      }
+    }
+
+    return references;
+  }
+
   // ... other methods remain similar but with proper TypeScript types ...
 
   public async chat(userMessage: string): Promise<ChatResponse> {
     try {
-      const messageEmbeddingResult = await extractFeatures(userMessage);
-
-      const relevantDocs = await this.vectorDb.searchSimilar(
-        messageEmbeddingResult,
-        "cosineSimilarity",
-        3
-      );
-
-      const contextWithRefs: ChatReference[] = relevantDocs.map(
-        (doc, index) =>
-          ({
-            text: doc.metadata.text,
-            ref: `[${index + 1}]`,
-            name: doc.metadata.filename,
-          } as ChatReference)
+      const isGeneralQuery = false;
+      const contextWithRefs = await this.getRelevantContexts(
+        userMessage,
+        isGeneralQuery
       );
 
       const context = contextWithRefs
         .map((c) => `${c.text} ${c.ref}`)
         .join("\n\n");
 
-      const prompt = `Given the following context from the webpage (${this.currentUrl}): 
-      ${context}
-      Use relevant information from the context, please respond to ${userMessage}. If the context doesn't contain relevant information to answer the question, please let me know that you don't have enough information from the webpage to answer accurately.`;
+      const prompt = `Using this context from the documents: 
+        
+${context}
+
+Please answer: ${userMessage}
+
+If the context doesn't provide sufficient relevant information for a complete answer, please let me know.`;
 
       const response = await this.gptNano.chat(prompt);
 
