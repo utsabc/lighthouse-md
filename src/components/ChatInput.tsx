@@ -1,27 +1,40 @@
 import React from "react";
 import { Input, Button } from "antd";
 import { SendOutlined } from "@ant-design/icons";
+import { useAppDispatch, useAppSelector } from "../store/hooks";
+import { setInputText } from "../store/slices/chatSlice";
 
 interface ChatInputProps {
-  inputText: string;
-  setInputText: (text: string) => void;
-  handleSend: () => Promise<void>;
+  onSend: (text: string) => Promise<void>;
   isLoading: boolean;
+  disabled?: boolean;
 }
 
 const ChatInput: React.FC<ChatInputProps> = ({
-  inputText,
-  setInputText,
-  handleSend,
+  onSend,
   isLoading,
+  disabled,
 }) => {
+  const dispatch = useAppDispatch();
+  const { inputText } = useAppSelector((state) => state.chat);
+
+  const handleSend = async () => {
+    if (!inputText.trim() || isLoading || disabled) return;
+    await onSend(inputText);
+    dispatch(setInputText(""));
+  };
+
   return (
     <div className="flex gap-2">
       <Input
         value={inputText}
-        onChange={(e) => setInputText(e.target.value)}
+        onChange={(e) => dispatch(setInputText(e.target.value))}
         onPressEnter={handleSend}
-        placeholder="Type your message..."
+        placeholder={
+          disabled
+            ? "Chat initialization in progress..."
+            : "Type your message..."
+        }
         className="flex-grow"
         disabled={isLoading}
       />

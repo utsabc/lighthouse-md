@@ -1,6 +1,7 @@
 import React from "react";
 import ReferencePopup from "./ReferencePopup";
 import { Message } from "../types";
+import Markdown from "react-markdown";
 
 interface ChatMessageProps {
   message: Message;
@@ -13,10 +14,10 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
     <div className={`flex ${isAI ? "justify-start" : "justify-end"}`}>
       <div
         className={`max-w-[70%] rounded-lg p-3 ${
-          isAI ? "bg-gray-100" : "bg-blue-500 text-white"
+          isAI ? "bg-red-50 border border-red-100" : "bg-red-500 text-white"
         }`}
       >
-        <div className="whitespace-pre-wrap">{message.text}</div>
+        <Markdown className="whitespace-pre-wrap">{message.text}</Markdown>
         {isAI && <ReferencePopup message={message} />}
       </div>
     </div>
