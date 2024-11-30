@@ -73,11 +73,9 @@ export class GPTNano {
     "zh-Hant",
   ];
 
-  private version: string;
   private ai: AI | null;
 
   constructor() {
-    this.version = "1.0.0";
     this.ai = null;
     this.initializeAI();
   }
