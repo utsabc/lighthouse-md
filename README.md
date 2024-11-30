@@ -1,50 +1,122 @@
-# React + TypeScript + Vite
+# Lighthouse MD - Medical Document Assistant
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+## Overview
+Lighthouse MD is a web-based application designed to help users understand and interact with their medical documents using AI assistance. The application runs completely in the browser, mostly utilizing local AI models for enhanced privacy and offline capabilities.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+### 📄 Document Management
+- **Multiple Format Support**: Upload and process various document formats (.pdf, .jpg)
+- **Real-time Status**: Visual indicators for document processing stages
+- **Document Summary**: Automated generation of document summaries
 
-## Expanding the ESLint configuration
+### 🤖 AI-Powered Analysis
+- **Local Processing**: Uses Gemini Nano model that runs directly in the browser
+- **Intelligent Summarization**: Automatically generates concise summaries of medical documents using `gemini-1.5-flash` analysis API
+- **Smart Context**: Maintains context across multiple documents for more accurate responses
+- **Vector Database**: Uses in-browser vector storage for efficient document retrieval
 
-If you are developing a production application, we recommend updating the configuration to enable type aware lint rules:
+### 💬 Interactive Chat
+- **Context-Aware Responses**: AI responses based on uploaded document content
+- **Source References**: Transparently shows which parts of documents were used for responses
+- **Real-time Interaction**: Immediate responses without server latency
 
-- Configure the top-level `parserOptions` property like this:
+### 🌐 Multilingual Support
+- **18 Languages Supported**:
+  - English
+  - Arabic
+  - Bengali
+  - German
+  - Spanish
+  - Hindi
+  - Italian
+  - Japanese
+  - Dutch
+  - Polish
+  - Portuguese
+  - Russian
+  - Thai
+  - Turkish
+  - Vietnamese
+  - Chinese (Simplified)
+  - Chinese (Traditional)
+  
+- **Language Selection**: Choose output language for summaries
+- **Cross-lingual Understanding**: Process documents in one language and get responses in another
+- **Multi-lingustic Chat**: Chat in any of the supported languages
 
-```js
-export default tseslint.config({
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+### 🔒 Privacy & Security
+- **No Server Storage**: Documents are not uploaded and stored in external servers
+- **Offline Capable**: Works without an internet connection after initial analysis
+
+## Technical Stack
+
+
+### AI/ML Components
+- Gemini Nano for interactions
+- Gemini Flash for file processing
+- IndexedDB for vector storage
+- Transformers.js for feature extraction
+- LangChain for text splitting
+
+## Getting Started
+
+### Prerequisites
+- Node.js (v18 or higher)
+- npm or yarn
+
+### Installation
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/lighthouse-md.git
+
+# Navigate to project directory
+cd lighthouse-md
+
+# Install dependencies
+npm install
+
+# Start development server
+npm run dev
 ```
 
-- Replace `tseslint.configs.recommended` to `tseslint.configs.recommendedTypeChecked` or `tseslint.configs.strictTypeChecked`
-- Optionally add `...tseslint.configs.stylisticTypeChecked`
-- Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and update the config:
+### Building for Production
+```bash
+# Create production build
+npm run build
 
-```js
-// eslint.config.js
-import react from 'eslint-plugin-react'
-
-export default tseslint.config({
-  // Set the react version
-  settings: { react: { version: '18.3' } },
-  plugins: {
-    // Add the react plugin
-    react,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended rules
-    ...react.configs.recommended.rules,
-    ...react.configs['jsx-runtime'].rules,
-  },
-})
+# Preview production build
+npm run preview
 ```
+
+## Usage Guide
+
+1. **Upload Documents**
+   - Click the "Upload Document" button in the Documents panel
+   - Select one or multiple medical documents
+   - Wait for processing indicators to complete
+
+2. **Review Summaries**
+   - View automatically generated summaries for each document
+   - Edit summaries if needed using the edit button
+   - Select desired output language from the dropdown
+   - Confirm the summary to enable chat functionality
+
+3. **Chat with Documents**
+   - Type questions about your medical documents in the chat panel
+   - View AI responses with referenced source sections
+   - Click on references to see the original context
+   - Continue the conversation naturally with follow-up questions
+
+## Browser Compatibility
+- Chrome (recommended) v90+
+- Firefox v90+
+- Safari v14+
+- Edge v90+
+
+
+## Disclaimer
+This application is designed to assist in reviewing medical documents but should not be used as a primary diagnostic tool or substitute for professional medical advice. Always consult healthcare professionals for medical decisions.
+
+## License
+This project is licensed under the MIT License - see the LICENSE file for details.
