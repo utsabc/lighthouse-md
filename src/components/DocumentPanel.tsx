@@ -1,102 +1,195 @@
-import React from "react";
-import { Upload, Button, List, Spin } from "antd";
+import React, { useEffect, useCallback } from "react";
+import { Upload, Button, List, Divider, Spin } from "antd";
 import { UploadOutlined } from "@ant-design/icons";
-import { EnhancedUploadFile } from "../types";
 import { UploadChangeParam } from "antd/es/upload";
+import { EnhancedUploadFile } from "../types";
 import { processFileWithState } from "../lib/ContentParser";
+import CombinedSummary from "./CombinedSummary";
+import { useAppDispatch, useAppSelector } from "../store/hooks";
+import { setDocuments, updateDocument } from "../store/slices/documentsSlice";
+import { getSummaryForClinicalReport } from "../lib/GeminiWorkload";
 
-interface DocumentPanelProps {
-  fileList: EnhancedUploadFile[];
-  setFileList: React.Dispatch<React.SetStateAction<EnhancedUploadFile[]>>;
-}
+const DocumentPanel: React.FC = () => {
+  const dispatch = useAppDispatch();
+  const { documents } = useAppSelector((state) => state.documents);
 
-const DocumentPanel: React.FC<DocumentPanelProps> = ({
-  fileList,
-  setFileList,
-}) => {
-  const updateFileState = (
-    uid: string,
-    updates: Partial<EnhancedUploadFile>
-  ) => {
-    setFileList((prevList) =>
-      prevList.map((f) => (f.uid === uid ? { ...f, ...updates } : f))
+  const serializeFileList = (
+    fileList: EnhancedUploadFile[]
+  ): EnhancedUploadFile[] => {
+    return fileList.map(
+      (file) =>
+        ({
+          ...file,
+          error: JSON.stringify(file.error),
+          // Convert Date objects to ISO strings
+          lastModifiedDate: file.lastModifiedDate
+            ? new Date(file.lastModifiedDate).toISOString()
+            : undefined,
+          // Remove non-serializable objects
+          originFileObj: file.originFileObj
+            ? {
+                uid: file.originFileObj.uid,
+              }
+            : undefined,
+        } as EnhancedUploadFile)
     );
   };
 
-  const handleChange = async (info: UploadChangeParam<EnhancedUploadFile>) => {
-    const { file, fileList: newFileList } = info;
+  const updateFileState = useCallback(
+    (uid: string, updates: Partial<EnhancedUploadFile>) => {
+      dispatch(updateDocument({ uid, updates }));
+    },
+    [dispatch]
+  );
 
-    // If the file is removed, update the fileList and return
-    if (file.status === "removed") {
-      setFileList(newFileList);
-      return;
-    }
+  const processDocuments = useCallback(
+    async (docs: EnhancedUploadFile[]) => {
+      const readyDocs = docs.filter(
+        (doc) => doc.base64Content && doc.processingState === "contentReady"
+      );
 
-    // Update the fileList with the new file
-    setFileList(newFileList);
-
-    // If the file is newly added, start processing its content
-    if (file.status === "uploading" && !file.content) {
-      const originalFile = file.originFileObj;
-      if (originalFile) {
+      for (const doc of readyDocs) {
         try {
-          await processFileWithState(originalFile, updateFileState, file.uid);
+          updateFileState(doc.uid, {
+            processingState: "analyzing",
+          });
+
+          const workloadResponse = await getSummaryForClinicalReport(
+            doc.base64Content!
+          );
+
+          updateFileState(doc.uid, {
+            processingState: "done",
+            summary: workloadResponse,
+            status: "done",
+          });
         } catch (error) {
-          console.error("Failed to process file:", error);
+          updateFileState(doc.uid, {
+            processingState: "error",
+            status: "error",
+            errorMessage:
+              error instanceof Error
+                ? error.message
+                : "Failed to process document",
+          });
         }
       }
+    },
+    [updateFileState]
+  );
+
+  useEffect(() => {
+    const readyDocs = documents.filter(
+      (file) => file.processingState === "contentReady" && file.base64Content
+    );
+
+    if (readyDocs.length > 0) {
+      processDocuments(readyDocs);
     }
-  };
+  }, [documents, processDocuments]);
+
+  const handleChange = useCallback(
+    async (info: UploadChangeParam<EnhancedUploadFile>) => {
+      const { file, fileList: newFileList } = info;
+
+      if (file.status === "removed") {
+        dispatch(setDocuments(serializeFileList(newFileList)));
+        return;
+      }
+
+      dispatch(setDocuments(serializeFileList(newFileList)));
+
+      if (file.status === "uploading" && !file.base64Content) {
+        const originalFile = file.originFileObj;
+        if (originalFile) {
+          try {
+            await processFileWithState(originalFile, updateFileState, file.uid);
+          } catch (error) {
+            console.error("Failed to process file:", error);
+          }
+        }
+      }
+    },
+    [dispatch, updateFileState]
+  );
 
   const renderFileStatus = (file: EnhancedUploadFile) => {
     switch (file.processingState) {
       case "processing":
-        return <Spin size="small" />;
+        return (
+          <div className="flex items-center">
+            <Spin size="small" />
+            <span className="ml-2 text-red-600">Reading file...</span>
+          </div>
+        );
+      case "contentReady":
+        return (
+          <div className="flex items-center">
+            <Spin size="small" />
+            <span className="ml-2 text-red-600">Content extracted</span>
+          </div>
+        );
+      case "analyzing":
+        return (
+          <div className="flex items-center">
+            <Spin size="small" />
+            <span className="ml-2 text-red-600">Processing for chat...</span>
+          </div>
+        );
       case "error":
         return <span className="text-red-500">{file.errorMessage}</span>;
       case "done":
-        return <span className="text-green-500">Processed</span>;
+        return <span className="text-green-600">Ready for chat</span>;
       default:
         return null;
     }
   };
 
   return (
-    <div className="h-full p-4 flex flex-col">
-      <div className="mb-4">
-        <h2 className="text-xl font-semibold mb-4">Documents</h2>
+    <div className="h-full flex flex-col p-4">
+      <div className="flex-none">
+        <h2 className="text-xl font-semibold mb-4 text-red-900">Documents</h2>
         <Upload
           accept=".pdf,.txt,.doc,.docx"
-          fileList={fileList}
+          fileList={documents}
           onChange={handleChange}
           multiple={true}
-          progress={{ strokeColor: { "0%": "#108ee9", "100%": "#87d068" } }}
-          className="w-full"
+          className="w-full mb-4"
         >
-          <Button icon={<UploadOutlined />} className="w-full">
-            Upload Document
+          <Button icon={<UploadOutlined />} className="w-full hover:bg-red-50">
+            Upload Documents
           </Button>
         </Upload>
       </div>
 
-      <List
-        className="flex-grow overflow-y-auto"
-        itemLayout="horizontal"
-        dataSource={fileList}
-        renderItem={(file) => (
-          <List.Item className="cursor-pointer hover:bg-gray-50 px-4">
-            <List.Item.Meta
-              title={file.name}
-              description={
-                <div className="flex justify-between">
-                  <span>{`Size: ${(file.size! / 1024).toFixed(2)} KB`}</span>
-                  {renderFileStatus(file)}
-                </div>
-              }
-            />
-          </List.Item>
-        )}
-      />
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+        <div className="h-2/5 overflow-y-auto mb-4">
+          <List
+            itemLayout="horizontal"
+            dataSource={documents}
+            renderItem={(file) => (
+              <List.Item className="cursor-pointer hover:bg-red-50 px-4 rounded-lg transition-colors">
+                <List.Item.Meta
+                  title={<span className="text-red-900">{file.name}</span>}
+                  description={
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">{`Size: ${(
+                        file.size! / 1024
+                      ).toFixed(2)} KB`}</span>
+                      {renderFileStatus(file)}
+                    </div>
+                  }
+                />
+              </List.Item>
+            )}
+          />
+        </div>
+
+        <Divider className="border-red-100" />
+        <div className="h-3/5 overflow-y-auto">
+          <CombinedSummary />
+        </div>
+      </div>
     </div>
   );
 };
