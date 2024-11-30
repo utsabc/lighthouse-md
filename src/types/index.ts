@@ -2,24 +2,23 @@ import type { UploadFile } from "antd/es/upload/interface";
 export interface Message {
   id: number;
   text: string;
-  sender: string;
-  timestamp: string;
+  sender: "user" | "ai";
+  timestamp: Date;
   references?: {
     text: string;
-    ref?: string;
-    name?: string;
+    ref: string;
+    name: string;
   }[];
 }
 
 export interface EnhancedUploadFile extends UploadFile {
   // string or binary data
-  base64Content?: string;
+  content?: string;
   errorMessage?: string;
-  summary?: string;
   processingState?:
     | "processing"
     | "contentReady"
-    | "analyzing"
+    | "vectorizing"
     | "done"
     | "error";
 }

@@ -31,12 +31,12 @@ interface Translator extends AIModel {
 }
 
 interface DetectedLanguage {
-  detectedLanguage: string;
+  detectedLanguages: string;
   confidence: number;
 }
 
 interface LanguageDetector extends AIModel {
-  detect(text: string): Promise<Array<DetectedLanguage>>;
+  detectLanguage(text: string): Promise<Array<DetectedLanguage>>;
 }
 
 interface LanguagePair {
@@ -88,7 +88,6 @@ export class GPTNano {
 
   private async initializeAI(): Promise<void> {
     try {
-      // @ts-expect-error - This is available
       const status = await ai.languageModel.capabilities();
       if (status.available !== "no") {
         this.ai = {
@@ -104,17 +103,15 @@ export class GPTNano {
   }
 
   private async initialiseSummarizer(): Promise<Summarizer | null> {
-    // @ts-expect-error - This is available
     const canSummarize = await ai.summarizer.capabilities();
     let summarizer: Summarizer | null = null;
 
     if (canSummarize && canSummarize.available !== "no") {
       if (canSummarize.available === "readily") {
-        // @ts-expect-error - This is available
+        // The summarizer can immediately be used.
         summarizer = await ai.summarizer.create();
       } else {
         // The summarizer can be used after the model download.
-        // @ts-expect-error - This is available
         summarizer = await ai.summarizer.create();
         if (!summarizer) {
           throw new Error("Failed to create summarizer");
@@ -130,12 +127,10 @@ export class GPTNano {
 
   private async initialiseChatSession(): Promise<ChatSession | null> {
     // Start by checking if it's possible to create a session based on the availability of the model, and the characteristics of the device.
-    // @ts-expect-error - This is available
     const { available }: AICapabilities = await ai.languageModel.capabilities();
 
     let session: ChatSession | null = null;
     if (available !== "no") {
-      // @ts-expect-error - This is available
       session = await ai.languageModel.create({
         systemPrompt: "You are a friendly, helpful assistant",
         monitor(m: AIModel) {
@@ -151,19 +146,19 @@ export class GPTNano {
   }
 
   private async languageDetector(): Promise<LanguageDetector | null> {
-    // @ts-expect-error - This is av
     const canDetect = await translation.canDetect();
     let detector;
     if (canDetect !== "no") {
       if (canDetect === "readily") {
         // The language detector can immediately be used.
-        // @ts-expect-error - This is available
         detector = await translation.createDetector();
         console.log("Detector ready");
       } else {
         // The language detector can be used after the model download.
-        // @ts-expect-error - This is available
         detector = await translation.createDetector();
+        detector.addEventListener("downloadprogress", (e) => {
+          console.log(e.loaded, e.total);
+        });
         await detector.ready;
       }
     } else {
@@ -175,23 +170,17 @@ export class GPTNano {
   private async initialiseTranslator(
     languagePair: LanguagePair
   ): Promise<Translator | null> {
-    // @ts-expect-error - This is available
     const canTranslate = await translation.canTranslate(languagePair);
     let translator: Translator | null = null;
 
     if (canTranslate !== "no") {
       if (canTranslate === "readily") {
         // The translator can immediately be used.
-        // @ts-expect-error - This is available
         translator = await translation.createTranslator(languagePair);
         console.log("Translator ready");
       } else {
         // The translator can be used after the model download.
-        // @ts-expect-error - This is available
         translator = await translation.createTranslator(languagePair);
-        if (!translator) {
-          throw new Error("Failed to create translator");
-        }
         await translator.ready;
       }
     } else {
@@ -208,31 +197,25 @@ export class GPTNano {
 
     let translator = this.ai.translator.get(
       `${sourceLanguage}#${targetLanguage}`
-    ) ?? null;
-    
-    if (!translator) {
-       if (sourceLanguage === targetLanguage) {
-         return null;
-       }
-
-       const languagePair: LanguagePair = {
-         sourceLanguage,
-         targetLanguage,
-       };
-       translator = await this.initialiseTranslator(languagePair);
-       if (translator) {
-         this.ai.translator.set(
-           `${sourceLanguage}#${targetLanguage}`,
-           translator
-         );
-       }
-
-       return translator;
+    );
+    if (translator) {
+      return translator;
     }
 
-    return translator;
+    if (sourceLanguage === targetLanguage) {
+      return null;
+    }
 
-   
+    const languagePair: LanguagePair = {
+      sourceLanguage,
+      targetLanguage,
+    };
+
+    translator = await this.initialiseTranslator(languagePair);
+    if (translator) {
+      this.ai.translator.set(`${sourceLanguage}#${targetLanguage}`, translator);
+    }
+    return translator;
   }
 
   public async chat(prompt: string): Promise<string> {
@@ -245,6 +228,7 @@ export class GPTNano {
 
   public async summarize(
     text: string,
+    _language: string = "en"
   ): Promise<string> {
     if (!this.ai?.summarizer) {
       throw new Error("Summarizer not initialized");
@@ -285,15 +269,6 @@ export class GPTNano {
     }
     const translation = await translator.translate(text);
     return translation;
-  }
-
-  public async detectLanguage(text: string): Promise<string | null> {
-    if (!this.ai?.languageDetector) {
-      throw new Error("Language detector not initialized");
-    }
-    const language = await this.ai.languageDetector.detect(text);
-    const { detectedLanguage } = language[0];
-    return detectedLanguage;
   }
 
   public isSupportedLanguage(language: string): boolean {
