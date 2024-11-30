@@ -68,8 +68,7 @@ Lighthouse MD is a web-based application designed to help users understand and i
 ### Installation
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/lighthouse-md.git
-
+git clone git@github.com:utsabc/lighthouse-md.git
 # Navigate to project directory
 cd lighthouse-md
 
