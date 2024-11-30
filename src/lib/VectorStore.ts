@@ -28,7 +28,10 @@ export class VectorDatabase {
   }
 
   public async init(): Promise<void> {
-    if (this.db) return;
+    if (this.db) {
+      // cleanup
+      this.clearDatabase();
+    }
 
     return new Promise((resolve, reject) => {
       const request: IDBOpenDBRequest = indexedDB.open(

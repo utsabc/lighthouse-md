@@ -1,89 +1,72 @@
-import React, { useEffect, useRef, useState } from "react";
-import { Layout } from "antd";
+import React, { useEffect } from "react";
+import { ConfigProvider, Layout } from "antd";
+import { Provider } from "react-redux";
+import { store } from "./store";
 import DocumentPanel from "./components/DocumentPanel";
-import ChatPanel, { Message } from "./components/ChatPanel";
-import { EnhancedUploadFile } from "./types";
-import { ChatManager } from "./lib/ChatManager";
+import ChatPanel from "./components/ChatPanel";
+import { useAppDispatch } from "./store/hooks";
+import { setInitializing } from "./store/slices/uiSlice";
+import { initializeChatManager } from "./store/slices/chatServiceSlice";
+import { CompactDisclaimer } from "./components/Disclaimer";
+import Header from "./components/Header";
 
 const { Content } = Layout;
 
-const App: React.FC = () => {
-  const [documents, setDocuments] = useState<EnhancedUploadFile[]>([]);
-  const chatManagerRef = useRef<ChatManager | null>(null);
+const theme = {
+  token: {
+    colorPrimary: "#ff6b6b",
+    colorInfo: "#ff6b6b",
+    colorSuccess: "#52c41a",
+    colorWarning: "#faad14",
+    colorError: "#f5222d",
+    colorBgContainer: "#ffffff",
+    borderRadius: 8,
+    fontFamily:
+      '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial',
+  },
+};
 
-  // chat states
-  const [inputText, setInputText] = useState("");
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isInitializing, setIsInitializing] = useState(true);
+const AppContent: React.FC = () => {
+  const dispatch = useAppDispatch();
+  // const { isInitialized, error } = useAppSelector((state) => state.chatService);
 
   useEffect(() => {
-    const initChatManager = async () => {
+    const init = async () => {
       try {
-        chatManagerRef.current = new ChatManager();
-        await chatManagerRef.current.initialize();
+        await dispatch(initializeChatManager()).unwrap();
       } catch (error) {
-        console.error("Failed to initialize ChatManager:", error);
+        console.error("Failed to initialize chat service:", error);
       } finally {
-        setIsInitializing(false);
+        dispatch(setInitializing(false));
       }
     };
 
-    initChatManager();
-  }, []);
-
-  const handleSend = async () => {
-    if (!inputText.trim() || !chatManagerRef.current) return;
-
-    const userMessage: Message = {
-      id: Date.now(),
-      text: inputText,
-      sender: "user",
-      timestamp: new Date(),
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-    setInputText("");
-    setIsLoading(true);
-
-    try {
-      const response = await chatManagerRef.current.chat(inputText);
-
-      const aiMessage: Message = {
-        id: Date.now(),
-        text: response.text,
-        sender: "ai",
-        timestamp: new Date(),
-        references: response.references,
-      };
-
-      setMessages((prev) => [...prev, aiMessage]);
-    } catch (error) {
-      console.error("Chat error:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    init();
+  }, [dispatch]);
 
   return (
-    <Layout className="min-h-screen">
-      <Content className="flex p-4 gap-4">
-        <div className="w-1/3 bg-white rounded-lg shadow-md">
-          <DocumentPanel fileList={documents} setFileList={setDocuments} />
+    <Layout className="h-screen flex flex-col overflow-hidden">
+      <Header />
+      <Content className="flex flex-1 p-4 gap-4 overflow-hidden">
+        <div className="w-1/3 bg-white rounded-lg shadow-md flex flex-col">
+          <DocumentPanel />
         </div>
-        <div className="w-2/3 bg-white rounded-lg shadow-md">
-          <ChatPanel
-            isInitializing={isInitializing}
-            handleSend={handleSend}
-            inputText={inputText}
-            isLoading={isLoading}
-            messages={messages}
-            setInputText={setInputText}
-            setIsLoading={setIsLoading}
-          />
+        <div className="w-2/3 bg-white rounded-lg shadow-md flex flex-col">
+          <ChatPanel />
         </div>
       </Content>
+      <CompactDisclaimer />
     </Layout>
+  );
+};
+
+const App: React.FC = () => {
+  return (
+    <Provider store={store}>
+      <ConfigProvider theme={theme}>
+        <AppContent />
+      </ConfigProvider>
+    </Provider>
   );
 };
 

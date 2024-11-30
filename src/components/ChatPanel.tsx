@@ -1,104 +1,104 @@
-import React from "react";
-import { Input, Button, Spin } from "antd";
-import { SendOutlined } from "@ant-design/icons";
+import React, { useMemo } from "react";
+import { Alert, Spin } from "antd";
+import ChatMessage from "./ChatMessage";
+import ChatInput from "./ChatInput";
+import { useAppSelector, useAppDispatch } from "../store/hooks";
+import { addMessage } from "../store/slices/chatSlice";
+import { setLoading } from "../store/slices/uiSlice";
+import { chatWithDocuments } from "../store/slices/chatServiceSlice";
 
-export interface Message {
-  id: number;
-  text: string;
-  sender: "user" | "ai";
-  timestamp: Date;
-  references?: {
-    text: string;
-    ref: string;
-    name: string;
-  }[];
-}
 
-/*
-  // chat states
-  const [inputText, setInputText] = useState("");
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isInitializing, setIsInitializing] = useState(true);
-*/
+const ChatPanel: React.FC = () => {
 
-interface ChatProps {
-  isInitializing: boolean;
-  messages: Message[];
-  inputText: string;
-  isLoading: boolean;
-  handleSend: () => Promise<void>;
-  setInputText: React.Dispatch<React.SetStateAction<string>>;
-  setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;
-}
+  const dispatch = useAppDispatch();
+  const { messages } = useAppSelector((state) => state.chat);
+  const { isLoading, isInitializing } = useAppSelector((state) => state.ui);
+  const { isInitialized } = useAppSelector((state) => state.chatService);
 
-const ChatPanel: React.FC<ChatProps> = ({
-  isInitializing,
-  messages,
-  inputText,
-  setInputText,
-  isLoading,
-  handleSend,
-}) => {
+  const handleSend = async (inputText: string) => {
+    if (!inputText.trim() || !isInitialized) return;
+
+    const userMessage = {
+      id: Date.now(),
+      text: inputText,
+      sender: "user",
+      timestamp: new Date().toISOString(),
+    };
+
+    dispatch(addMessage(userMessage));
+    dispatch(setLoading(true));
+
+    try {
+      const response = await dispatch(chatWithDocuments(inputText)).unwrap();
+
+      const aiMessage = {
+        id: Date.now(),
+        text: response.text,
+        sender: "ai",
+        timestamp: new Date().toISOString(),
+        references: response.references,
+      };
+
+      dispatch(addMessage(aiMessage));
+    } catch (error) {
+      console.error("Chat error:", error);
+    } finally {
+      dispatch(setLoading(false));
+    }
+  };
+
+  const messageElements = useMemo(
+    () =>
+      messages.map((message) => (
+        <ChatMessage key={message.id} message={message} />
+      )),
+    [messages]
+  );
+
   if (isInitializing) {
     return (
       <div className="h-full flex items-center justify-center">
-        <Spin size="large" tip="Initializing chat..." />
+        <Spin size="large" />
       </div>
     );
   }
 
+  const showInitialDisclaimer = messages.length === 0;
   return (
-    <div className="h-full p-4 flex flex-col">
-      <h2 className="text-xl font-semibold mb-4">Chat</h2>
+    <div className="h-full flex flex-col p-4">
+      <h2 className="text-xl font-semibold mb-4 flex-none">Chat</h2>
 
-      <div className="flex-grow overflow-y-auto mb-4 space-y-4">
-        {messages.map((message) => (
-          <div
-            key={message.id}
-            className={`flex ${
-              message.sender === "user" ? "justify-end" : "justify-start"
-            }`}
-          >
-            <div
-              className={`max-w-[70%] rounded-lg p-3 ${
-                message.sender === "user"
-                  ? "bg-blue-500 text-white"
-                  : "bg-gray-100"
-              }`}
-            >
-              <div>{message.text}</div>
-              {message.references && (
-                <div className="mt-2 text-sm text-gray-600">
-                  {message.references.map((ref, index) => (
-                    <div key={index} className="mt-1">
-                      {ref.ref}: {ref.text}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
+      <div className="flex-1 overflow-y-auto mb-4 space-y-4 min-h-0">
+        {showInitialDisclaimer && (
+          <Alert
+            type="info"
+            showIcon
+            message="Welcome to Medical Document Assistant"
+            description={
+              <div className="space-y-2 text-sm">
+                <p>
+                  This AI assistant can help you understand your medical
+                  documents, but remember:
+                </p>
+                <ul className="list-disc pl-4">
+                  <li>All responses are for informational purposes only</li>
+                  <li>Verify information with your healthcare provider</li>
+                  <li>Not a substitute for professional medical advice</li>
+                </ul>
+              </div>
+            }
+            className="mb-4"
+          />
+        )}
+        {messageElements}
       </div>
 
-      <div className="flex gap-2">
-        <Input
-          value={inputText}
-          onChange={(e) => setInputText(e.target.value)}
-          onPressEnter={handleSend}
-          placeholder="Type your message..."
-          className="flex-grow"
-          disabled={isLoading}
+      <div className="flex-none">
+        <ChatInput
+          onSend={handleSend}
+          isLoading={isLoading}
+          disabled={!isInitialized}
         />
-        <Button
-          type="primary"
-          icon={<SendOutlined />}
-          onClick={handleSend}
-          loading={isLoading}
-        >
-          Send
-        </Button>
       </div>
     </div>
   );
